@@ -32,7 +32,7 @@ class MinerUClient:
         if mode == "accurate":
             return self._convert_accurate_upload(path, model_version=model_version, language=language)
         if mode == "agent":
-            return self._convert_agent_file(path)
+            return self._convert_agent_file(path, language=language)
         raise ValueError("mode должен быть 'accurate' или 'agent'")
 
     def _convert_accurate_upload(self, path: Path, model_version: str, language: str) -> str:
@@ -59,21 +59,32 @@ class MinerUClient:
         zip_url = self._poll_batch(batch_id, headers)
         return self._download_markdown_from_zip(zip_url)
 
-    def _convert_agent_file(self, path: Path) -> str:
-        with path.open("rb") as source:
-            files = {"file": (path.name, source)}
-            response = requests.post(f"{self.base_url}/api/v1/agent/parse/file", files=files, timeout=self.timeout)
+    def _convert_agent_file(self, path: Path, language: str = "ru") -> str:
+        payload = {
+            "file_name": path.name,
+            "language": language,
+            "enable_table": True,
+            "is_ocr": False,
+            "enable_formula": True,
+        }
+        response = requests.post(f"{self.base_url}/api/v1/agent/parse/file", json=payload, timeout=self.timeout)
         data = self._json(response)
         if data.get("code") != 0:
             raise MinerUError(data.get("msg", "Не удалось создать agent-задачу MinerU"))
-        task_id = data.get("data", {}).get("task_id") or data.get("data", {}).get("id")
-        if not task_id:
-            markdown_url = data.get("data", {}).get("markdown_url") or data.get("data", {}).get("md_url")
-            if markdown_url:
-                return requests.get(markdown_url, timeout=self.timeout).text
-            raise MinerUError("MinerU Agent не вернул task_id или markdown_url")
+
+        payload_data = data.get("data", {})
+        task_id = payload_data.get("task_id")
+        file_url = payload_data.get("file_url")
+        if not task_id or not file_url:
+            raise MinerUError("MinerU Agent не вернул task_id или file_url для подписанной загрузки")
+
+        with path.open("rb") as source:
+            upload_response = requests.put(file_url, data=source, timeout=self.timeout)
+        if upload_response.status_code not in (200, 201):
+            raise MinerUError(f"Ошибка загрузки файла в MinerU Agent: HTTP {upload_response.status_code}")
+
         markdown_url = self._poll_agent(task_id)
-        return requests.get(markdown_url, timeout=self.timeout).text
+        return self._download_text(markdown_url)
 
     def _poll_batch(self, batch_id: str, headers: dict) -> str:
         deadline = time.time() + self.max_wait_seconds
@@ -98,7 +109,7 @@ class MinerUClient:
         deadline = time.time() + self.max_wait_seconds
         last_state = "unknown"
         while time.time() < deadline:
-            response = requests.get(f"{self.base_url}/api/v1/agent/parse/result/{task_id}", timeout=self.timeout)
+            response = requests.get(f"{self.base_url}/api/v1/agent/parse/{task_id}", timeout=self.timeout)
             data = self._json(response)
             if data.get("code") != 0:
                 raise MinerUError(data.get("msg", "Ошибка запроса agent-результата MinerU"))
@@ -111,6 +122,12 @@ class MinerUClient:
                 raise MinerUError(payload.get("err_msg", "MinerU Agent не смог обработать документ"))
             time.sleep(self.poll_interval)
         raise MinerUError(f"Превышено время ожидания MinerU Agent, последний статус: {last_state}")
+
+    def _download_text(self, url: str) -> str:
+        response = requests.get(url, timeout=self.timeout)
+        if response.status_code >= 400:
+            raise MinerUError(f"Не удалось скачать Markdown MinerU: HTTP {response.status_code}")
+        return response.text
 
     def _download_markdown_from_zip(self, zip_url: str) -> str:
         response = requests.get(zip_url, timeout=self.timeout)

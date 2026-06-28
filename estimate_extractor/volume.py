@@ -64,9 +64,6 @@ def evaluate_formula(expression: str) -> float:
 def _eval_node(node: ast.AST) -> float:
     if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
         return float(node.value)
-    ast_num = getattr(ast, "Num", None)
-    if ast_num is not None and isinstance(node, ast_num):  # pragma: no cover - old Python compatibility
-        return float(node.n)
     if isinstance(node, ast.BinOp) and type(node.op) in _ALLOWED_OPERATORS:
         return _ALLOWED_OPERATORS[type(node.op)](_eval_node(node.left), _eval_node(node.right))
     if isinstance(node, ast.UnaryOp) and type(node.op) in _ALLOWED_OPERATORS:

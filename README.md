@@ -7,7 +7,7 @@
 - Загружает PDF, Excel, CSV, DOC/DOCX, изображения или готовый Markdown.
 - Поддерживает два режима MinerU:
   - `accurate` — через API key, для основного использования.
-  - `agent` — лёгкий режим MinerU без ключа, с ограничениями сервиса.
+  - `agent` — лёгкий режим MinerU без ключа, через signed-upload: сначала передаётся `file_name`, затем файл загружается по `file_url`.
 - Не парсит PDF/Excel напрямую: весь pipeline идёт через промежуточный Markdown.
 - Показывает и даёт скачать Markdown.
 - Извлекает колонки: № п/п, код расценки, наименование работ, единица измерения, количество, примечание.
@@ -51,7 +51,7 @@ export MINERU_API_KEY="your-token"
 python main.py -i estimate.pdf -o result.xlsx --format xlsx --markdown-output estimate.md --mineru-mode accurate
 ```
 
-Обработка через agent-режим:
+Обработка через agent-режим без API key:
 
 ```bash
 python main.py -i estimate.pdf -o result.csv --mineru-mode agent --markdown-output estimate.md
